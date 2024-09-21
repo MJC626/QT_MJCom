@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/qt/qml/QT_uart/">
+    <file alias="Main.qml">C:/Users/23016/Documents/QT/QT_uart/Main.qml</file>
+  </qresource>
+</RCC>
+
