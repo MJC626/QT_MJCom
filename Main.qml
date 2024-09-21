@@ -11,6 +11,7 @@ ApplicationWindow {
     property int maxLines: 100
     property string bufferText: ""
     property bool autoScroll: true
+    property real lastScrollPosition: 0
 
     function getCurrentDateTime() {
         var now = new Date();
@@ -24,14 +25,27 @@ ApplicationWindow {
         running: true
         onTriggered: {
             if (bufferText !== "") {
+                var scrollAtBottom = isScrollAtBottom()
+                var currentPosition = scrollView.ScrollBar.vertical.position
+
                 receiveArea.append(bufferText)
                 trimOldData()
-                if (autoScroll) {
+
+                if (autoScroll || scrollAtBottom) {
                     forceRefresh()
+                } else {
+                    // Maintain the scroll position
+                    scrollView.ScrollBar.vertical.position = currentPosition
                 }
+
                 bufferText = ""
             }
         }
+    }
+
+    function isScrollAtBottom() {
+        var scrollBar = scrollView.ScrollBar.vertical
+        return (scrollBar.position + scrollBar.size >= 0.99)
     }
 
     Column {
@@ -81,6 +95,7 @@ ApplicationWindow {
         }
 
         // 接收数据显示区域
+        // 接收数据显示区域
         Rectangle {
             width: 560
             height: 200
@@ -90,6 +105,7 @@ ApplicationWindow {
                 id: scrollView
                 anchors.fill: parent
                 clip: true
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
                 TextArea {
                     id: receiveArea
@@ -98,22 +114,9 @@ ApplicationWindow {
                     wrapMode: TextArea.Wrap
                     textFormat: TextEdit.PlainText
                 }
-
-                // 使用 ScrollBar 来监听滚动事件
-                ScrollBar.vertical: ScrollBar {
-                    id: vbar
-                    active: true
-                    enabled: !autoScroll // 自动滚动启用时禁用滚动条
-                    onPositionChanged: {
-                        if (vbar.position + vbar.size >= 0.99) {
-                            autoScroll = true
-                        } else {
-                            autoScroll = false
-                        }
-                    }
-                }
             }
         }
+
 
         // 发送数据输入区域
         TextArea {
@@ -186,34 +189,45 @@ ApplicationWindow {
             checked: autoScroll
             onCheckedChanged: {
                 autoScroll = checked
-                vbar.enabled = !checked
                 if (autoScroll) {
                     forceRefresh()
+                } else {
+                    lastScrollPosition = scrollView.ScrollBar.vertical.position
                 }
             }
         }
 
         // Auto-clean controls
         Row {
-            spacing: 10
-            Label {
-                text: "最大行数:"
-                anchors.verticalCenter: parent.verticalCenter
-            }
-            SpinBox {
-                id: maxLinesSpinBox
-                from: 10
-                to: 1000
-                value: maxLines
-                onValueChanged: maxLines = value
-            }
-        }
+                    spacing: 10
+                    Label {
+                        text: "最大行数:"
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    TextField {
+                        id: maxLinesField
+                        width: 100
+                        text: maxLines.toString()
+                        validator: IntValidator {
+                            bottom: 10
+                            top: 1000
+                        }
+                        onEditingFinished: {
+                            if (acceptableInput) {
+                                maxLines = parseInt(text)
+                                trimOldData()
+                            } else {
+                                text = maxLines.toString()
+                            }
+                        }
+                    }
+                }
 
-        Button {
-            text: "清空接收区"
-            onClicked: clearReceiveArea()
-        }
-    }
+                Button {
+                    text: "清空接收区"
+                    onClicked: clearReceiveArea()
+                }
+            }
 
     Connections {
         target: serial
@@ -228,17 +242,20 @@ ApplicationWindow {
     }
 
     function trimOldData() {
-        var lines = receiveArea.text.split('\n')
-        if (lines.length > maxLines) {
-            lines = lines.slice(-maxLines)
-            receiveArea.text = lines.join('\n')
+            var lines = receiveArea.text.split('\n')
+            if (lines.length > maxLines) {
+                lines = lines.slice(-maxLines)
+                receiveArea.text = lines.join('\n')
+                if (autoScroll) {
+                    forceRefresh()
+                }
+            }
         }
-    }
 
     function forceRefresh() {
-        receiveArea.cursorPosition = receiveArea.length
-        vbar.position = 1.0 - vbar.size
-    }
+           receiveArea.cursorPosition = receiveArea.length
+           scrollView.ScrollBar.vertical.position = 1.0 - scrollView.ScrollBar.vertical.size
+       }
 
     function clearReceiveArea() {
         receiveArea.clear()
