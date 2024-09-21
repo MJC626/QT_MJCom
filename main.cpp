@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("serial", &serialHandler);
 
     // 加载 QML 文件
-    const QUrl url(QStringLiteral("../../Main.qml"));
+    const QUrl url(QStringLiteral("../../../QT_uart/Main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                      &app, [url](QObject *obj, const QUrl &objUrl) {
                          if (!obj && url == objUrl)
