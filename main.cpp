@@ -4,11 +4,10 @@
 #include <QSerialPort>
 #include <QSerialPortInfo>
 #include <QTimer>
-#include <QDebug>
 
 // SerialHandler 类用于处理串口操作
 class SerialHandler : public QObject {
-    Q_OBJECT
+Q_OBJECT
 
 public:
     explicit SerialHandler(QObject *parent = nullptr) : QObject(parent) {
@@ -26,8 +25,8 @@ public:
         serial.setDataBits(static_cast<QSerialPort::DataBits>(dataBits.toInt()));
         serial.setStopBits(static_cast<QSerialPort::StopBits>(stopBits.toInt()));
         serial.setParity(parity == "None" ? QSerialPort::NoParity :
-                             (parity == "Even" ? QSerialPort::EvenParity :
-                                  QSerialPort::OddParity));
+                         (parity == "Even" ? QSerialPort::EvenParity :
+                          QSerialPort::OddParity));
 
         // 尝试打开串口
         if (serial.open(QIODevice::ReadWrite)) {
@@ -48,13 +47,18 @@ public:
         }
     }
 
-    // 发送数据
-    Q_INVOKABLE void sendData(const QString &hexData) {
+    // 发送数据 (支持HEX和ASCII)
+    Q_INVOKABLE void sendData(const QString &data, bool isHex) {
         if (serial.isOpen()) {
-            QByteArray byteArray = hexStringToByteArray(hexData);
+            QByteArray byteArray;
+            if (isHex) {
+                byteArray = hexStringToByteArray(data);
+            } else {
+                byteArray = data.toUtf8(); // ASCII模式直接转为ByteArray
+            }
             serial.write(byteArray);
-            qDebug() << "Sent data:" << hexData;
-            emit dataSent(hexData);
+            qDebug() << "Sent data:" << (isHex ? data : QString::fromUtf8(byteArray.toHex(' ')));
+            emit dataSent(data, isHex);
         }
     }
 
@@ -69,8 +73,9 @@ public:
     }
 
     // 开始自动发送数据
-    Q_INVOKABLE void startAutoSend(const QString &hexData, int interval) {
-        this->autoSendDataStr = hexData;
+    Q_INVOKABLE void startAutoSend(const QString &data, int interval, bool isHex) {
+        this->autoSendDataStr = data;
+        this->autoSendIsHex = isHex;
         autoSendTimer.start(interval);
     }
 
@@ -83,27 +88,34 @@ private:
     bool isPortOpen = false;  // 串口是否打开
     QTimer autoSendTimer;     // 定时器用于自动发送
     QString autoSendDataStr;  // 自动发送的数据
+    bool autoSendIsHex = true; // 自动发送的数据格式
 
 private slots:
     // 读取串口数据
     void readData() {
-        QByteArray data = serial.readAll();
+        QByteArray rawData = serial.readAll();
+
+        // 将原始数据转换为十六进制字符串格式，方便在QML中处理
         QString hexData;
-        for (char byte : data) {
-            hexData += QString::asprintf("%02X ", static_cast<unsigned char>(byte));
+        for (char byte : rawData) {
+            hexData += QString("%1 ").arg(static_cast<quint8>(byte), 2, 16, QLatin1Char('0')).toUpper();
         }
-        qDebug() << "Received data:" << hexData.trimmed();
-        emit dataReceived(hexData.trimmed());
+
+        // 同时传递ASCII格式，用于ASCII显示模式
+        QString asciiData = QString::fromUtf8(rawData);
+
+        emit dataReceived(hexData.trimmed(), asciiData);
     }
 
     // 自动发送数据
     void autoSendData() {
-        sendData(autoSendDataStr);
+        sendData(autoSendDataStr, autoSendIsHex);
     }
 
 signals:
-    void dataReceived(const QString &data);  // 数据接收信号
-    void dataSent(const QString &data);      // 数据发送信号
+    // 修改信号，直接发送处理好的两种格式数据
+    void dataReceived(const QString &hexData, const QString &asciiData);
+    void dataSent(const QString &data, bool isHex);  // 数据发送信号
 
 private:
     // 将十六进制字符串转换为字节数组
@@ -111,10 +123,12 @@ private:
         QByteArray byteArray;
         QStringList hexList = hexString.split(' ');
         for (const QString &hex : hexList) {
-            bool ok;
-            char byte = hex.toInt(&ok, 16);
-            if (ok) {
-                byteArray.append(byte);
+            if (!hex.isEmpty()) {
+                bool ok;
+                char byte = hex.toInt(&ok, 16);
+                if (ok) {
+                    byteArray.append(byte);
+                }
             }
         }
         return byteArray;
@@ -134,12 +148,12 @@ int main(int argc, char *argv[]) {
     engine.rootContext()->setContextProperty("serial", &serialHandler);
 
     // 加载 QML 文件
-    const QUrl url(QStringLiteral("../../../QT_uart/Main.qml"));
+    const QUrl url(QStringLiteral("../../Main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
                      &app, [url](QObject *obj, const QUrl &objUrl) {
-                         if (!obj && url == objUrl)
-                             QCoreApplication::exit(-1);
-                     }, Qt::QueuedConnection);
+                if (!obj && url == objUrl)
+                    QCoreApplication::exit(-1);
+            }, Qt::QueuedConnection);
 
     engine.load(url);
 

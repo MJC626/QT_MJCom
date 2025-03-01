@@ -1,5 +1,0 @@
-module QT_uart
-typeinfo appQT_uart.qmltypes
-prefer :/qt/qml/QT_uart/
-Main 1.0 Main.qml
-

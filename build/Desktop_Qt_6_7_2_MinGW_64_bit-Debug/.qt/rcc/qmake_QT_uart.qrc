@@ -1,6 +1,0 @@
-<RCC>
-  <qresource prefix="/qt/qml/QT_uart">
-    <file alias="qmldir">C:/Users/23016/Documents/QT/QT_uart/build/Desktop_Qt_6_7_2_MinGW_64_bit-Debug/QT_uart/qmldir</file>
-  </qresource>
-</RCC>
-

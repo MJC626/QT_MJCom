@@ -1,1 +1,0 @@
-C:/Users/23016/Documents/QT/QT_uart/build/Desktop_Qt_6_7_2_MinGW_64_bit-Debug/appQT_uart_autogen/include/main.moc.json
