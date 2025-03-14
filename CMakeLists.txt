@@ -3,6 +3,9 @@ cmake_minimum_required(VERSION 3.16)
 project(Mjcom VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
 
 
 # Lua配置 -------------------------------------------------
@@ -45,7 +48,7 @@ qt_add_qml_module(Mjcom
     URI Mjcom
     VERSION 1.0
     QML_FILES
-        Main.qml
+        RESOURCES MJCom.qrc
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
