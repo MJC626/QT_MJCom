@@ -12,7 +12,7 @@
 #include <QThread>
 #include <QMutex>
 #include <QWaitCondition>
-#include <QQuickStyle>
+#include <QIcon>
 
 
 // Lua头文件
@@ -866,7 +866,7 @@ private:
 
 int main(int argc, char *argv[]) {
     QGuiApplication app(argc, argv);
-
+    app.setWindowIcon(QIcon(":/MJCom.ico"));
     QQmlApplicationEngine engine;
 
     // 创建 SerialHandler 实例并设置为 QML 上下文属性

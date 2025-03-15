@@ -2,11 +2,9 @@ cmake_minimum_required(VERSION 3.16)
 
 project(Mjcom VERSION 0.1 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
-
 
 # Lua配置 -------------------------------------------------
 set(LUA_DIR "Lua")
@@ -69,3 +67,26 @@ install(TARGETS Mjcom
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+
+if(WIN32)
+    get_target_property(_qmake_executable Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake_executable}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt_bin_dir}")
+
+    if(WINDEPLOYQT_EXECUTABLE)
+      add_custom_command(TARGET Mjcom POST_BUILD
+          COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                  --no-translations          # 不部署翻译文件
+                  --no-system-d3d-compiler   # 不部署 D3D 编译器
+                  --no-virtualkeyboard       # 不部署虚拟键盘
+                  --no-opengl-sw             # 不部署软件 OpenGL
+                  --no-svg                   # 如果不使用 SVG，可以移除
+                  --compiler-runtime         # 只部署必要的编译器运行时
+                  --qmldir "${CMAKE_CURRENT_SOURCE_DIR}"  # 指定 QML 目录以便只部署所需的 QML 模块
+                  --release                  # 指定发布版本，减少调试信息
+                  "$<TARGET_FILE:Mjcom>"
+          WORKING_DIRECTORY "$<TARGET_FILE_DIR:Mjcom>"
+          COMMENT "Deploying minimal Qt dependencies for Mjcom..."
+      )
+    endif()
+endif()
