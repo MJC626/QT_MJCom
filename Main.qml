@@ -5,6 +5,9 @@ import QtQuick.Controls 2.15
 import QtQuick.Layouts
 import QtQuick.Controls.Fusion
 import QtQuick.Dialogs
+import QtQuick.Window
+
+
 
 ApplicationWindow {
     id: root
@@ -1018,6 +1021,30 @@ ApplicationWindow {
                                     Item {
                                         Layout.fillWidth: true
                                     } // 占位，使按钮靠右对齐
+
+                                    Button {
+                                        text: "数据可视化"
+                                        implicitHeight: 28
+                                        Layout.preferredWidth: 100
+                                        font.pixelSize: 12
+                                        background: Rectangle {
+                                            color: parent.pressed ? "#5a6268" : "#6c757d"
+                                            radius: 4
+                                        }
+                                        contentItem: Text {
+                                            text: parent.text
+                                            color: "white"
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            font.pixelSize: 12
+                                        }
+                                        onClicked: {
+                                            // 初始化可视化窗口并显示
+                                            var text = scriptOutputArea.selectedText || scriptOutputArea.text;
+                                            visualizationWindow.initAndShow(text);
+                                        }
+                                    }
+
                                     Button {
                                         text: "清空输出"
                                         implicitHeight: 28
@@ -1053,6 +1080,60 @@ ApplicationWindow {
                                         background: Rectangle {
                                             color: "#f8f9fa"
                                         }
+
+                                        // 监听文本变化
+                                        onTextChanged: {
+                                            // 如果可视化窗口可见，更新数据
+                                            if (visualizationWindow.visible) {
+                                                visualizationWindow.updateData(text);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 主应用中的窗口代码
+                        Window {
+                            id: visualizationWindow
+                            title: "数据可视化"
+                            width: 800
+                            height: 600
+                            visible: false
+                            modality: Qt.ApplicationModal
+
+                            // 初始化窗口并显示
+                            function initAndShow(text) {
+                                if (!visible) {
+                                    visible = true;
+                                    // 确保组件加载完成后再设置数据
+                                    if (visualizationLoader.status === Loader.Ready && visualizationLoader.item) {
+                                        visualizationLoader.item.setData(text);
+                                    }
+                                }
+                            }
+
+                            // 更新数据
+                            function updateData(text) {
+                                if (visualizationLoader.status === Loader.Ready && visualizationLoader.item) {
+                                    visualizationLoader.item.setData(text);
+                                    visualizationLoader.item.forceUpdate(); // 强制立即更新
+                                }
+                            }
+
+                            Loader {
+                                id: visualizationLoader
+                                anchors.fill: parent
+                                source: "qrc:/VisualizationWindow.qml"
+                                asynchronous: false // 同步加载以确保项目立即可用
+
+                                onLoaded: {
+                                    console.log("可视化组件已加载");
+                                }
+
+                                onStatusChanged: {
+                                    if (status === Loader.Error) {
+                                        console.error("加载可视化组件失败");
                                     }
                                 }
                             }
@@ -1163,6 +1244,11 @@ ApplicationWindow {
             scriptcurrentLines = lines.length;
         }
         scriptOutputArea.cursorPosition = scriptOutputArea.text.length;
+
+        // 如果可视化窗口可见，直接更新而不等待文本变化信号
+        if (visualizationWindow.visible) {
+            visualizationWindow.updateData(scriptOutputArea.text);
+        }
     }
 
     function trimOldData() {

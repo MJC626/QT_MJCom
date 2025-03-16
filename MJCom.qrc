@@ -2,5 +2,6 @@
     <qresource prefix="/">
         <file>Main.qml</file>
         <file>MJCom.ico</file>
+        <file>VisualizationWindow.qml</file>
     </qresource>
 </RCC>

@@ -267,7 +267,7 @@ public:
         }
 
         if (sent) {
-            qDebug() << "Sent data:" << (isHex ? data : QString::fromUtf8(byteArray.toHex(' ')));
+            // qDebug() << "Sent data:" << (isHex ? data : QString::fromUtf8(byteArray.toHex(' ')));
             emit dataSent(data, isHex);
         }
     }
@@ -796,7 +796,6 @@ private:
 
         int nargs = lua_gettop(L);
         QString output;
-
         for (int i = 1; i <= nargs; i++) {
             if (lua_isstring(L, i)) {
                 output += QString::fromUtf8(lua_tostring(L, i));
@@ -807,12 +806,10 @@ private:
             } else {
                 output += "nil";
             }
-
             if (i < nargs) {
                 output += " ";
             }
         }
-
         emit handler->luaOutput(output);
         return 0;
     }
