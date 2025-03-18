@@ -368,9 +368,8 @@ public:
         QTextStream in(&file);
         QString script = in.readAll();
         file.close();
-
-        // 执行脚本
-        return executeLuaScript(script);
+        currentScript = script;
+        return "成功打开文件: " + filePath;
     }
 
     // 保存Lua脚本到文件

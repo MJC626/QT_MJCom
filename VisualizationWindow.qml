@@ -98,7 +98,7 @@ Item {
                 var item = parsedData.find(item => item.key === key)
                 return item.type + " (" + item.address + ")"
             })
-            
+
             dataTypeComboBox.model = displayLabels
 
             if (currentSelection && displayLabels.includes(currentSelection)) {
@@ -148,7 +148,7 @@ Item {
 
         // 更新格式标签
         formatLabel.text = dataSet.format ? "格式: " + dataSet.format : ""
-        
+
         // 更新数据列表
         updateDataList(dataSet)
     }
@@ -158,7 +158,7 @@ Item {
 
         var scrollPos = dataListView.contentY
         dataListModel.clear()
-        
+
         var baseAddress = parseInt(dataSet.address, 16)
         var valuesCount = dataSet.values.length
         var rowCount = Math.ceil(valuesCount / 2)
@@ -169,12 +169,12 @@ Item {
 
             var addr1 = baseAddress + idx1
             var addr1Hex = "0x" + addr1.toString(16).toUpperCase().padStart(4, '0')
-            var value1 = idx1 < valuesCount ? (dataSet.values[idx1] === true ? "ON" : 
+            var value1 = idx1 < valuesCount ? (dataSet.values[idx1] === true ? "ON" :
                          dataSet.values[idx1] === false ? "OFF" : dataSet.values[idx1]) : ""
 
             var addr2 = baseAddress + idx2
             var addr2Hex = "0x" + addr2.toString(16).toUpperCase().padStart(4, '0')
-            var value2 = idx2 < valuesCount ? (dataSet.values[idx2] === true ? "ON" : 
+            var value2 = idx2 < valuesCount ? (dataSet.values[idx2] === true ? "ON" :
                          dataSet.values[idx2] === false ? "OFF" : dataSet.values[idx2]) : ""
 
             dataListModel.append({
@@ -187,6 +187,16 @@ Item {
         }
 
         dataListView.contentY = scrollPos
+    }
+
+    // 添加清除数据的函数
+    function clearData() {
+        parsedData = []
+        knownKeys = []
+        currentKey = ""
+        formatLabel.text = ""
+        dataListModel.clear()
+        dataTypeComboBox.model = []
     }
 
     ColumnLayout {
@@ -220,6 +230,14 @@ Item {
 
             Item {
                 Layout.fillWidth: true
+            }
+
+            // 添加清除数据按钮
+            Button {
+                text: "清除数据"
+                onClicked: clearData()
+                Layout.preferredHeight: dataTypeComboBox.height
+                Layout.preferredWidth: 80
             }
         }
 
@@ -343,7 +361,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: model.value1
                                 font.family: "Courier New"
-                                color: model.value1 === "ON" ? "green" : 
+                                color: model.value1 === "ON" ? "green" :
                                        model.value1 === "OFF" ? "red" : "black"
                             }
                         }
@@ -373,7 +391,7 @@ Item {
                                 anchors.centerIn: parent
                                 text: model.hasSecondColumn ? model.value2 : ""
                                 font.family: "Courier New"
-                                color: model.value2 === "ON" ? "green" : 
+                                color: model.value2 === "ON" ? "green" :
                                        model.value2 === "OFF" ? "red" : "black"
                             }
                         }
