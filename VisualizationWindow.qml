@@ -12,6 +12,9 @@ Item {
     property var parsedData: []
     property string currentKey: ""  // 当前选中的寄存器类型和地址组合键
     property var knownKeys: []      // 已知的寄存器类型和地址组合键列表
+    property var valueLabels: ({})  // 存储用户自定义的值标签
+    property var valueUnits: ({})   // 存储用户自定义的值单位
+    property var valueFormulas: ({})   // 存储用户自定义的数学公式
 
     function setData(text) {
         if (!text || text.trim() === "") return
@@ -20,7 +23,7 @@ Item {
     }
 
     function forceUpdate() {
-            updateVisualization()
+        updateVisualization()
     }
 
     function parseData(text) {
@@ -123,6 +126,51 @@ Item {
         }
     }
 
+    // 应用数学公式到值
+    function applyFormula(value, formula) {
+        if (!formula || formula.trim() === "" || value === "ON" || value === "OFF") {
+            return value
+        }
+
+        try {
+            // 转换为数字（如果是数字的话）
+            var numValue = parseFloat(value)
+            if (isNaN(numValue)) {
+                return value
+            }
+
+            var result = numValue
+            // 支持简单的数学公式
+            if (formula.startsWith("X") || formula.startsWith("x")) {
+                var factor = parseFloat(formula.substring(1))
+                if (!isNaN(factor)) {
+                    result = numValue * factor
+                }
+            } else if (formula.startsWith("+")) {
+                var addend = parseFloat(formula.substring(1))
+                if (!isNaN(addend)) {
+                    result = numValue + addend
+                }
+            } else if (formula.startsWith("-")) {
+                var subtrahend = parseFloat(formula.substring(1))
+                if (!isNaN(subtrahend)) {
+                    result = numValue - subtrahend
+                }
+            } else if (formula.startsWith("/")) {
+                var divisor = parseFloat(formula.substring(1))
+                if (!isNaN(divisor) && divisor !== 0) {
+                    result = numValue / divisor
+                }
+            }
+
+            // 格式化结果，最多保留两位小数
+            return result.toFixed(2).replace(/\.00$/, "")
+        } catch (e) {
+            console.error("公式应用失败: ", e)
+            return value
+        }
+    }
+
     function updateVisualization() {
         if (parsedData.length === 0) return
 
@@ -163,33 +211,67 @@ Item {
         var valuesCount = dataSet.values.length
         var rowCount = Math.ceil(valuesCount / 2)
 
+        // 初始化当前键的标签和单位对象
+        if (!valueLabels[currentKey]) {
+            valueLabels[currentKey] = {}
+        }
+
+        if (!valueUnits[currentKey]) {
+            valueUnits[currentKey] = {}
+        }
+
+        if (!valueFormulas[currentKey]) {
+            valueFormulas[currentKey] = {}
+        }
+
         for (var j = 0; j < rowCount; j++) {
             var idx1 = j * 2
             var idx2 = j * 2 + 1
 
             var addr1 = baseAddress + idx1
             var addr1Hex = "0x" + addr1.toString(16).toUpperCase().padStart(4, '0')
-            var value1 = idx1 < valuesCount ? (dataSet.values[idx1] === true ? "ON" :
+            var rawValue1 = idx1 < valuesCount ? (dataSet.values[idx1] === true ? "ON" :
                          dataSet.values[idx1] === false ? "OFF" : dataSet.values[idx1]) : ""
+
+            // 获取公式并应用
+            var formula1 = valueFormulas[currentKey][addr1Hex] || ""
+            var value1 = applyFormula(rawValue1, formula1)
 
             var addr2 = baseAddress + idx2
             var addr2Hex = "0x" + addr2.toString(16).toUpperCase().padStart(4, '0')
-            var value2 = idx2 < valuesCount ? (dataSet.values[idx2] === true ? "ON" :
+            var rawValue2 = idx2 < valuesCount ? (dataSet.values[idx2] === true ? "ON" :
                          dataSet.values[idx2] === false ? "OFF" : dataSet.values[idx2]) : ""
+
+            // 获取公式并应用
+            var formula2 = valueFormulas[currentKey][addr2Hex] || ""
+            var value2 = applyFormula(rawValue2, formula2)
+
+            // 获取标签和单位，如果没有则为空
+            var label1 = valueLabels[currentKey][addr1Hex] || ""
+            var label2 = valueLabels[currentKey][addr2Hex] || ""
+            var unit1 = valueUnits[currentKey][addr1Hex] || ""
+            var unit2 = valueUnits[currentKey][addr2Hex] || ""
 
             dataListModel.append({
                 address1: addr1Hex,
                 value1: value1,
+                rawValue1: rawValue1,
                 address2: addr2Hex,
                 value2: value2,
-                hasSecondColumn: idx2 < valuesCount
+                rawValue2: rawValue2,
+                hasSecondColumn: idx2 < valuesCount,
+                label1: label1,
+                label2: label2,
+                unit1: unit1,
+                unit2: unit2,
+                formula1: formula1,
+                formula2: formula2
             })
         }
 
         dataListView.contentY = scrollPos
     }
 
-    // 添加清除数据的函数
     function clearData() {
         parsedData = []
         knownKeys = []
@@ -197,6 +279,23 @@ Item {
         formatLabel.text = ""
         dataListModel.clear()
         dataTypeComboBox.model = []
+    }
+
+    // 保存自定义标签、单位和公式的函数
+    function saveLabelUnitAndFormula(address, label, unit, formula) {
+        if (!valueLabels[currentKey]) {
+            valueLabels[currentKey] = {}
+        }
+        if (!valueUnits[currentKey]) {
+            valueUnits[currentKey] = {}
+        }
+        if (!valueFormulas[currentKey]) {
+            valueFormulas[currentKey] = {}
+        }
+
+        valueLabels[currentKey][address] = label
+        valueUnits[currentKey][address] = unit
+        valueFormulas[currentKey][address] = formula
     }
 
     ColumnLayout {
@@ -232,7 +331,6 @@ Item {
                 Layout.fillWidth: true
             }
 
-            // 添加清除数据按钮
             Button {
                 text: "清除数据"
                 onClicked: clearData()
@@ -351,6 +449,7 @@ Item {
                         }
 
                         Rectangle {
+                            id: valueRect1
                             width: parent.width * 0.35
                             height: parent.height
                             color: "transparent"
@@ -358,11 +457,34 @@ Item {
                             border.color: "#e0e0e0"
 
                             Text {
+                                id: valueText1
                                 anchors.centerIn: parent
-                                text: model.value1
+                                text: {
+                                    var displayText = ""
+                                    if (model.label1) {
+                                        displayText = model.label1 + ": "
+                                    }
+                                    displayText += model.value1
+                                    if (model.unit1) {
+                                        displayText += " " + model.unit1
+                                    }
+                                    return displayText
+                                }
                                 font.family: "Courier New"
                                 color: model.value1 === "ON" ? "green" :
                                        model.value1 === "OFF" ? "red" : "black"
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onDoubleClicked: {
+                                    labelEditor.address = model.address1
+                                    labelEditor.labelText = model.label1
+                                    labelEditor.unitText = model.unit1
+                                    labelEditor.formulaText = model.formula1
+                                    labelEditor.valueText = model.rawValue1
+                                    labelEditor.open()
+                                }
                             }
                         }
 
@@ -381,6 +503,7 @@ Item {
                         }
 
                         Rectangle {
+                            id: valueRect2
                             width: parent.width * 0.35
                             height: parent.height
                             color: "transparent"
@@ -388,11 +511,39 @@ Item {
                             border.color: "#e0e0e0"
 
                             Text {
+                                id: valueText2
                                 anchors.centerIn: parent
-                                text: model.hasSecondColumn ? model.value2 : ""
+                                text: {
+                                    if (!model.hasSecondColumn) return ""
+
+                                    var displayText = ""
+                                    if (model.label2) {
+                                        displayText = model.label2 + ": "
+                                    }
+                                    displayText += model.value2
+                                    if (model.unit2) {
+                                        displayText += " " + model.unit2
+                                    }
+                                    return displayText
+                                }
                                 font.family: "Courier New"
                                 color: model.value2 === "ON" ? "green" :
                                        model.value2 === "OFF" ? "red" : "black"
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: model.hasSecondColumn
+                                onDoubleClicked: {
+                                    if (model.hasSecondColumn) {
+                                        labelEditor.address = model.address2
+                                        labelEditor.labelText = model.label2
+                                        labelEditor.unitText = model.unit2
+                                        labelEditor.formulaText = model.formula2
+                                        labelEditor.valueText = model.rawValue2
+                                        labelEditor.open()
+                                    }
+                                }
                             }
                         }
                     }
@@ -401,6 +552,140 @@ Item {
                 ScrollBar.vertical: ScrollBar {
                     policy: ScrollBar.AsNeeded
                     interactive: true
+                }
+            }
+        }
+    }
+
+    // 标签编辑对话框
+    Dialog {
+        id: labelEditor
+        title: "编辑值标签与公式"
+        modal: true
+        width: 360
+        height: 280
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        anchors.centerIn: Overlay.overlay
+
+        property string address: ""
+        property string labelText: ""
+        property string unitText: ""
+        property string formulaText: ""
+        property string valueText: ""
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 10
+
+            Label {
+                text: "地址: " + labelEditor.address
+                Layout.fillWidth: true
+            }
+
+            Label {
+                text: "原始值: " + labelEditor.valueText
+                Layout.fillWidth: true
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 5
+
+                Label {
+                    text: "自定义标签:"
+                }
+
+                TextField {
+                    id: labelField
+                    Layout.fillWidth: true
+                    placeholderText: ""
+                    text: labelEditor.labelText
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 5
+
+                Label {
+                    text: "数学公式:"
+                }
+
+                TextField {
+                    id: formulaField
+                    Layout.fillWidth: true
+                    placeholderText: "支持X,+,-,/"
+                    text: labelEditor.formulaText
+                }
+
+                Label {
+                    text: "计算后:"
+                    visible: formulaField.text.trim() !== "" &&
+                             labelEditor.valueText !== "ON" &&
+                             labelEditor.valueText !== "OFF"
+                }
+
+                Label {
+                    id: previewLabel
+                    text: {
+                        if (formulaField.text.trim() === "" ||
+                            labelEditor.valueText === "ON" ||
+                            labelEditor.valueText === "OFF") {
+                            return ""
+                        }
+
+                        return applyFormula(labelEditor.valueText, formulaField.text)
+                    }
+                    visible: formulaField.text.trim() !== "" &&
+                             labelEditor.valueText !== "ON" &&
+                             labelEditor.valueText !== "OFF"
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 5
+
+                Label {
+                    text: "单位符号:"
+                }
+
+                TextField {
+                    id: unitField
+                    Layout.preferredWidth: 60
+                    placeholderText: ""
+                    text: labelEditor.unitText
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignRight
+                spacing: 10
+
+                Button {
+                    text: "取消"
+                    onClicked: labelEditor.close()
+                }
+
+                Button {
+                    text: "确定"
+                    onClicked: {
+                        saveLabelUnitAndFormula(labelEditor.address, labelField.text, unitField.text, formulaField.text)
+                        updateVisualization()
+                        labelEditor.close()
+                    }
+                }
+            }
+        }
+
+        // 预览计算结果的逻辑
+        Connections {
+            target: formulaField
+            function onTextChanged() {
+                if (labelEditor.valueText !== "ON" && labelEditor.valueText !== "OFF") {
+                    previewLabel.text = applyFormula(labelEditor.valueText, formulaField.text)
                 }
             }
         }
