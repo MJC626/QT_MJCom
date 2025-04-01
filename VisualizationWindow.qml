@@ -29,24 +29,22 @@ Item {
     Timer {
         id: recordTimer
         interval: 1000
-        running: false
+        running: true // 总是运行，但只在有窗口在记录时才实际记录数据
         repeat: true
         onTriggered: {
-            if (chartWindow.visible && chartWindow.isRecording && chartWindow.currentItemId) {
-                var currentValue = getCurrentValueById(chartWindow.currentItemId);
-                if (currentValue !== null && currentValue !== "" && currentValue !== "ON" && currentValue !== "OFF") {
-                    var numValue = parseFloat(currentValue);
-                    if (!isNaN(numValue)) {
-                        if (!dataHistory[chartWindow.currentItemId]) {
-                            dataHistory[chartWindow.currentItemId] = {
-                                data: [],
-                                isRecording: true
-                            };
+            // 对每个有记录标志的地址进行数据记录
+            for (var itemId in dataHistory) {
+                if (dataHistory[itemId] && dataHistory[itemId].isRecording) {
+                    var currentValue = getCurrentValueById(itemId);
+                    if (currentValue !== null && currentValue !== "" &&
+                        currentValue !== "ON" && currentValue !== "OFF") {
+                        var numValue = parseFloat(currentValue);
+                        if (!isNaN(numValue)) {
+                            dataHistory[itemId].data.push({
+                                timestamp: new Date().getTime(),
+                                value: numValue
+                            });
                         }
-                        dataHistory[chartWindow.currentItemId].data.push({
-                            timestamp: new Date().getTime(),
-                            value: numValue
-                        });
                     }
                 }
             }
@@ -534,11 +532,12 @@ Item {
                                     font.pixelSize: 10
                                     onClicked: {
                                         var itemId = model.address1 + "_1";
-                                        chartWindow.currentItemId = itemId;
-                                        chartWindow.title = "地址 " + model.address1 + " 的数据曲线";
-                                        chartWindow.recordInterval = recordIntervals[itemId] || 1000;
-                                        chartWindow.isRecording = dataHistory[itemId] ? dataHistory[itemId].isRecording : false;
-                                        chartWindow.show();
+                                        var chartWin = chartWindowComponent.createObject(root, {
+                                            "currentItemId": itemId,
+                                            "title": "地址 " + model.address1 + " 的数据曲线",
+                                            "recordInterval": recordIntervals[itemId] || 1000,
+                                            "isRecording": dataHistory[itemId] ? dataHistory[itemId].isRecording : false
+                                        });
                                     }
                                 }
                             }
@@ -594,7 +593,7 @@ Item {
                                 }
 
                                 Button {
-                                    id:chartButton2
+                                    id: chartButton2
                                     Layout.preferredHeight: parent.height - 4
                                     Layout.preferredWidth: height
                                     visible: model.hasSecondColumn && model.value2 !== "" &&
@@ -603,11 +602,12 @@ Item {
                                     font.pixelSize: 10
                                     onClicked: {
                                         var itemId = model.address2 + "_2";
-                                        chartWindow.currentItemId = itemId;
-                                        chartWindow.title = "地址 " + model.address2 + " 的数据曲线";
-                                        chartWindow.recordInterval = recordIntervals[itemId] || 1000;
-                                        chartWindow.isRecording = dataHistory[itemId] ? dataHistory[itemId].isRecording : false;
-                                        chartWindow.show();
+                                        var chartWin = chartWindowComponent.createObject(root, {
+                                            "currentItemId": itemId,
+                                            "title": "地址 " + model.address2 + " 的数据曲线",
+                                            "recordInterval": recordIntervals[itemId] || 1000,
+                                            "isRecording": dataHistory[itemId] ? dataHistory[itemId].isRecording : false
+                                        });
                                     }
                                 }
                             }
@@ -745,33 +745,46 @@ Item {
     }
 
     // 曲线图窗口
-    Window {
-        id: chartWindow
-        width: 800
-        height: 600
-        visible: false
-        title: "数据曲线图"
+    Component {
+        id: chartWindowComponent
+        Window {
+            id: chartWindow
+            width: 800
+            height: 600
+            visible: true
 
-        property string currentItemId: ""  // 当前选中的项目ID
-        property bool isRecording: false   // 是否正在记录
-        property int recordInterval: 1000  // 记录间隔
-        property bool useKalmanFilter: false // 是否使用卡尔曼滤波
-        property int maxDataPoints: 100    // X轴最大数据点数
-        property real kalmanQ: 0.01        // 卡尔曼滤波器 Q 值
-        property real kalmanR: 0.1         // 卡尔曼滤波器 R 值
+            property string currentItemId: ""  // 当前选中的项目ID
+            property bool isRecording: false   // 是否正在记录
+            property int recordInterval: 1000  // 记录间隔
+            property bool useKalmanFilter: false // 是否使用卡尔曼滤波
+            property int maxDataPoints: 100    // X轴最大数据点数
+            property real kalmanQ: 0.01        // 卡尔曼滤波器 Q 值
+            property real kalmanR: 0.1         // 卡尔曼滤波器 R 值
+            property var kalmanP: 1.0         // 卡尔曼状态
+            property var kalmanX: 0.0         // 卡尔曼状态
 
-        // 卡尔曼滤波函数
-        function kalmanFilter(measurement) {
-            // 预测步骤
-            kalmanP = kalmanP + kalmanQ;
+            // 卡尔曼滤波函数
+            function kalmanFilter(measurement) {
+                // 预测步骤
+                kalmanP = kalmanP + kalmanQ;
 
-            // 更新步骤
-            const kalmanK = kalmanP / (kalmanP + kalmanR);  // 卡尔曼增益
-            kalmanX = kalmanX + kalmanK * (measurement - kalmanX);
-            kalmanP = (1 - kalmanK) * kalmanP;
+                // 更新步骤
+                const kalmanK = kalmanP / (kalmanP + kalmanR);  // 卡尔曼增益
+                kalmanX = kalmanX + kalmanK * (measurement - kalmanX);
+                kalmanP = (1 - kalmanK) * kalmanP;
 
-            return kalmanX;
-        }
+                return kalmanX;
+            }
+
+            // 窗口关闭时的处理
+            onClosing: {
+                if (isRecording) {
+                    isRecording = false;
+                    if (dataHistory[currentItemId]) {
+                        dataHistory[currentItemId].isRecording = false;
+                    }
+                }
+            }
 
         ColumnLayout {
             anchors.fill: parent
@@ -812,12 +825,10 @@ Item {
                             } else {
                                 dataHistory[chartWindow.currentItemId].isRecording = true;
                             }
-                            recordTimer.start();
                         } else {
                             if (dataHistory[chartWindow.currentItemId]) {
                                 dataHistory[chartWindow.currentItemId].isRecording = false;
                             }
-                            recordTimer.stop();
                         }
                     }
                 }
@@ -1000,4 +1011,5 @@ Item {
             }
         }
     }
+}
 }
