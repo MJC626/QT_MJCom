@@ -14,7 +14,7 @@ ApplicationWindow {
     visible: true
     width: 900
     height: 700
-    title: qsTr("通信助手")
+    title: qsTr("MJCom 通信助手")
 
     property int maxLines: 100 // 接收区最大行数
     property int scriptcurrentLines: 0
@@ -1117,7 +1117,6 @@ ApplicationWindow {
                             function updateData(text) {
                                 if (visualizationLoader.status === Loader.Ready && visualizationLoader.item) {
                                     visualizationLoader.item.setData(text);
-                                    visualizationLoader.item.forceUpdate(); // 强制立即更新
                                 }
                             }
 

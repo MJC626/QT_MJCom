@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
+import QtCharts
 
 Item {
     id: root
@@ -12,17 +13,83 @@ Item {
     property var parsedData: []
     property string currentKey: ""  // 当前选中的寄存器类型和地址组合键
     property var knownKeys: []      // 已知的寄存器类型和地址组合键列表
-    property var valueLabels: ({})  // 存储用户自定义的值标签
-    property var valueUnits: ({})   // 存储用户自定义的值单位
     property var valueFormulas: ({})   // 存储用户自定义的数学公式
+
+    // 曲线图数据属性
+    property var dataHistory: ({})     // 存储每个地址的历史数据
+    property var recordIntervals: ({}) // 存储每个地址的记录间隔
+
+    // 卡尔曼滤波器参数
+    property real kalmanP: 1.0
+    property real kalmanX: 0.0
+    property real kalmanQ: 0.01    // 过程噪声协方差
+    property real kalmanR: 0.1     // 测量噪声协方差
+
+    // 记录定时器
+    Timer {
+        id: recordTimer
+        interval: 1000
+        running: false
+        repeat: true
+        onTriggered: {
+            if (chartWindow.visible && chartWindow.isRecording && chartWindow.currentItemId) {
+                var currentValue = getCurrentValueById(chartWindow.currentItemId);
+                if (currentValue !== null && currentValue !== "" && currentValue !== "ON" && currentValue !== "OFF") {
+                    var numValue = parseFloat(currentValue);
+                    if (!isNaN(numValue)) {
+                        if (!dataHistory[chartWindow.currentItemId]) {
+                            dataHistory[chartWindow.currentItemId] = {
+                                data: [],
+                                isRecording: true
+                            };
+                        }
+                        dataHistory[chartWindow.currentItemId].data.push({
+                            timestamp: new Date().getTime(),
+                            value: numValue
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 获取当前值的函数
+    function getCurrentValueById(id) {
+        // 解析ID格式 - 假设格式为"地址_列"，例如"0x0001_1"（第一列）或"0x0001_2"（第二列）
+        var parts = id.split("_");
+        if (parts.length !== 2) return null;
+
+        var address = parts[0];
+        var column = parseInt(parts[1]);
+
+        // 查找对应的数据
+        for (var i = 0; i < dataListModel.count; i++) {
+            var item = dataListModel.get(i);
+            if (column === 1 && item.address1 === address) {
+                return item.value1;
+            } else if (column === 2 && item.address2 === address) {
+                return item.value2;
+            }
+        }
+        return null;
+    }
+
+    // 卡尔曼滤波函数
+    function kalmanFilter(measurement) {
+        // 预测步骤
+        kalmanP = kalmanP + kalmanQ;
+
+        // 更新步骤
+        const kalmanK = kalmanP / (kalmanP + kalmanR);  // 卡尔曼增益
+        kalmanX = kalmanX + kalmanK * (measurement - kalmanX);
+        kalmanP = (1 - kalmanK) * kalmanP;
+
+        return kalmanX;
+    }
 
     function setData(text) {
         if (!text || text.trim() === "") return
         parseData(text)
-        updateVisualization()
-    }
-
-    function forceUpdate() {
         updateVisualization()
     }
 
@@ -126,7 +193,7 @@ Item {
         }
     }
 
-    // 应用数学公式到值
+    // 公式计算函数，支持复杂表达式
     function applyFormula(value, formula) {
         if (!formula || formula.trim() === "" || value === "ON" || value === "OFF") {
             return value
@@ -139,36 +206,50 @@ Item {
                 return value
             }
 
-            var result = numValue
-            // 支持简单的数学公式
-            if (formula.startsWith("X") || formula.startsWith("x")) {
-                var factor = parseFloat(formula.substring(1))
-                if (!isNaN(factor)) {
-                    result = numValue * factor
-                }
-            } else if (formula.startsWith("+")) {
-                var addend = parseFloat(formula.substring(1))
-                if (!isNaN(addend)) {
-                    result = numValue + addend
-                }
-            } else if (formula.startsWith("-")) {
-                var subtrahend = parseFloat(formula.substring(1))
-                if (!isNaN(subtrahend)) {
-                    result = numValue - subtrahend
-                }
-            } else if (formula.startsWith("/")) {
-                var divisor = parseFloat(formula.substring(1))
-                if (!isNaN(divisor) && divisor !== 0) {
-                    result = numValue / divisor
-                }
+            // 替换公式中的 'X' 为实际值
+            var evalFormula = formula.replace(/X/gi, numValue.toString())
+            var result
+
+            // 解析和计算公式
+            if (evalFormula.match(/^[\d\s\+\-\*\/\(\)\.]+$/)) {
+                result = Function('"use strict"; return (' + evalFormula + ')')()
+            } else {
+                // 如果公式包含不安全字符，则尝试使用旧的简单公式处理方法
+                result = processSimpleFormula(numValue, formula)
             }
 
-            // 格式化结果，最多保留两位小数
-            return result.toFixed(2).replace(/\.00$/, "")
+            // 格式化结果，最多保留四位小数
+            return result.toFixed(4).replace(/\.00$/, "")
         } catch (e) {
             console.error("公式应用失败: ", e)
             return value
         }
+    }
+
+    // 处理简单公式的备用方法
+    function processSimpleFormula(value, formula) {
+        if (formula.startsWith("X") || formula.startsWith("x")) {
+            var factor = parseFloat(formula.substring(1))
+            if (!isNaN(factor)) {
+                return value * factor
+            }
+        } else if (formula.startsWith("+")) {
+            var addend = parseFloat(formula.substring(1))
+            if (!isNaN(addend)) {
+                return value + addend
+            }
+        } else if (formula.startsWith("-")) {
+            var subtrahend = parseFloat(formula.substring(1))
+            if (!isNaN(subtrahend)) {
+                return value - subtrahend
+            }
+        } else if (formula.startsWith("/")) {
+            var divisor = parseFloat(formula.substring(1))
+            if (!isNaN(divisor) && divisor !== 0) {
+                return value / divisor
+            }
+        }
+        return value
     }
 
     function updateVisualization() {
@@ -211,15 +292,7 @@ Item {
         var valuesCount = dataSet.values.length
         var rowCount = Math.ceil(valuesCount / 2)
 
-        // 初始化当前键的标签和单位对象
-        if (!valueLabels[currentKey]) {
-            valueLabels[currentKey] = {}
-        }
-
-        if (!valueUnits[currentKey]) {
-            valueUnits[currentKey] = {}
-        }
-
+        // 初始化当前键的公式对象
         if (!valueFormulas[currentKey]) {
             valueFormulas[currentKey] = {}
         }
@@ -246,12 +319,6 @@ Item {
             var formula2 = valueFormulas[currentKey][addr2Hex] || ""
             var value2 = applyFormula(rawValue2, formula2)
 
-            // 获取标签和单位，如果没有则为空
-            var label1 = valueLabels[currentKey][addr1Hex] || ""
-            var label2 = valueLabels[currentKey][addr2Hex] || ""
-            var unit1 = valueUnits[currentKey][addr1Hex] || ""
-            var unit2 = valueUnits[currentKey][addr2Hex] || ""
-
             dataListModel.append({
                 address1: addr1Hex,
                 value1: value1,
@@ -260,10 +327,6 @@ Item {
                 value2: value2,
                 rawValue2: rawValue2,
                 hasSecondColumn: idx2 < valuesCount,
-                label1: label1,
-                label2: label2,
-                unit1: unit1,
-                unit2: unit2,
                 formula1: formula1,
                 formula2: formula2
             })
@@ -281,20 +344,11 @@ Item {
         dataTypeComboBox.model = []
     }
 
-    // 保存自定义标签、单位和公式的函数
-    function saveLabelUnitAndFormula(address, label, unit, formula) {
-        if (!valueLabels[currentKey]) {
-            valueLabels[currentKey] = {}
-        }
-        if (!valueUnits[currentKey]) {
-            valueUnits[currentKey] = {}
-        }
+    // 保存公式的函数
+    function saveFormula(address, formula) {
         if (!valueFormulas[currentKey]) {
             valueFormulas[currentKey] = {}
         }
-
-        valueLabels[currentKey][address] = label
-        valueUnits[currentKey][address] = unit
         valueFormulas[currentKey][address] = formula
     }
 
@@ -456,34 +510,47 @@ Item {
                             border.width: 1
                             border.color: "#e0e0e0"
 
-                            Text {
-                                id: valueText1
-                                anchors.centerIn: parent
-                                text: {
-                                    var displayText = ""
-                                    if (model.label1) {
-                                        displayText = model.label1 + ": "
-                                    }
-                                    displayText += model.value1
-                                    if (model.unit1) {
-                                        displayText += " " + model.unit1
-                                    }
-                                    return displayText
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                spacing: 5
+
+                                Text {
+                                    id: valueText1
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: model.value1
+                                    font.family: "Courier New"
+                                    color: model.value1 === "ON" ? "green" :
+                                           model.value1 === "OFF" ? "red" : "black"
                                 }
-                                font.family: "Courier New"
-                                color: model.value1 === "ON" ? "green" :
-                                       model.value1 === "OFF" ? "red" : "black"
+
+                                Button {
+                                    id: chartButton1
+                                    Layout.preferredHeight: parent.height - 4
+                                    Layout.preferredWidth: height
+                                    visible: model.value1 !== "" && model.value1 !== "ON" && model.value1 !== "OFF"
+                                    text: "📈"
+                                    font.pixelSize: 10
+                                    onClicked: {
+                                        var itemId = model.address1 + "_1";
+                                        chartWindow.currentItemId = itemId;
+                                        chartWindow.title = "地址 " + model.address1 + " 的数据曲线";
+                                        chartWindow.recordInterval = recordIntervals[itemId] || 1000;
+                                        chartWindow.isRecording = dataHistory[itemId] ? dataHistory[itemId].isRecording : false;
+                                        chartWindow.show();
+                                    }
+                                }
                             }
 
                             MouseArea {
                                 anchors.fill: parent
+                                anchors.rightMargin: chartButton1.width + 10
                                 onDoubleClicked: {
-                                    labelEditor.address = model.address1
-                                    labelEditor.labelText = model.label1
-                                    labelEditor.unitText = model.unit1
-                                    labelEditor.formulaText = model.formula1
-                                    labelEditor.valueText = model.rawValue1
-                                    labelEditor.open()
+                                    formulaEditor.address = model.address1
+                                    formulaEditor.formulaText = model.formula1
+                                    formulaEditor.valueText = model.rawValue1
+                                    formulaEditor.open()
                                 }
                             }
                         }
@@ -510,38 +577,51 @@ Item {
                             border.width: 1
                             border.color: "#e0e0e0"
 
-                            Text {
-                                id: valueText2
-                                anchors.centerIn: parent
-                                text: {
-                                    if (!model.hasSecondColumn) return ""
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                spacing: 5
+                                enabled: model.hasSecondColumn
 
-                                    var displayText = ""
-                                    if (model.label2) {
-                                        displayText = model.label2 + ": "
-                                    }
-                                    displayText += model.value2
-                                    if (model.unit2) {
-                                        displayText += " " + model.unit2
-                                    }
-                                    return displayText
+                                Text {
+                                    id: valueText2
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: model.hasSecondColumn ? model.value2 : ""
+                                    font.family: "Courier New"
+                                    color: model.value2 === "ON" ? "green" :
+                                           model.value2 === "OFF" ? "red" : "black"
                                 }
-                                font.family: "Courier New"
-                                color: model.value2 === "ON" ? "green" :
-                                       model.value2 === "OFF" ? "red" : "black"
+
+                                Button {
+                                    id:chartButton2
+                                    Layout.preferredHeight: parent.height - 4
+                                    Layout.preferredWidth: height
+                                    visible: model.hasSecondColumn && model.value2 !== "" &&
+                                             model.value2 !== "ON" && model.value2 !== "OFF"
+                                    text: "📈"
+                                    font.pixelSize: 10
+                                    onClicked: {
+                                        var itemId = model.address2 + "_2";
+                                        chartWindow.currentItemId = itemId;
+                                        chartWindow.title = "地址 " + model.address2 + " 的数据曲线";
+                                        chartWindow.recordInterval = recordIntervals[itemId] || 1000;
+                                        chartWindow.isRecording = dataHistory[itemId] ? dataHistory[itemId].isRecording : false;
+                                        chartWindow.show();
+                                    }
+                                }
                             }
 
                             MouseArea {
                                 anchors.fill: parent
+                                anchors.rightMargin: chartButton1.width + 10
                                 enabled: model.hasSecondColumn
                                 onDoubleClicked: {
                                     if (model.hasSecondColumn) {
-                                        labelEditor.address = model.address2
-                                        labelEditor.labelText = model.label2
-                                        labelEditor.unitText = model.unit2
-                                        labelEditor.formulaText = model.formula2
-                                        labelEditor.valueText = model.rawValue2
-                                        labelEditor.open()
+                                        formulaEditor.address = model.address2
+                                        formulaEditor.formulaText = model.formula2
+                                        formulaEditor.valueText = model.rawValue2
+                                        formulaEditor.open()
                                     }
                                 }
                             }
@@ -557,19 +637,17 @@ Item {
         }
     }
 
-    // 标签编辑对话框
+    // 公式编辑对话框
     Dialog {
-        id: labelEditor
-        title: "编辑值标签与公式"
+        id: formulaEditor
+        title: "编辑数学公式"
         modal: true
-        width: 360
-        height: 280
+        width: 400
+        height: 200
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
         anchors.centerIn: Overlay.overlay
 
         property string address: ""
-        property string labelText: ""
-        property string unitText: ""
         property string formulaText: ""
         property string valueText: ""
 
@@ -579,29 +657,13 @@ Item {
             spacing: 10
 
             Label {
-                text: "地址: " + labelEditor.address
+                text: "地址: " + formulaEditor.address
                 Layout.fillWidth: true
             }
 
             Label {
-                text: "原始值: " + labelEditor.valueText
+                text: "原始值: " + formulaEditor.valueText
                 Layout.fillWidth: true
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 5
-
-                Label {
-                    text: "自定义标签:"
-                }
-
-                TextField {
-                    id: labelField
-                    Layout.fillWidth: true
-                    placeholderText: ""
-                    text: labelEditor.labelText
-                }
             }
 
             RowLayout {
@@ -615,47 +677,31 @@ Item {
                 TextField {
                     id: formulaField
                     Layout.fillWidth: true
-                    placeholderText: "支持X,+,-,/"
-                    text: labelEditor.formulaText
+                    placeholderText: "例如: (X-10)*3+10"
+                    text: formulaEditor.formulaText
                 }
 
                 Label {
                     text: "计算后:"
                     visible: formulaField.text.trim() !== "" &&
-                             labelEditor.valueText !== "ON" &&
-                             labelEditor.valueText !== "OFF"
+                             formulaEditor.valueText !== "ON" &&
+                             formulaEditor.valueText !== "OFF"
                 }
 
                 Label {
                     id: previewLabel
                     text: {
                         if (formulaField.text.trim() === "" ||
-                            labelEditor.valueText === "ON" ||
-                            labelEditor.valueText === "OFF") {
+                            formulaEditor.valueText === "ON" ||
+                            formulaEditor.valueText === "OFF") {
                             return ""
                         }
 
-                        return applyFormula(labelEditor.valueText, formulaField.text)
+                        return applyFormula(formulaEditor.valueText, formulaField.text)
                     }
                     visible: formulaField.text.trim() !== "" &&
-                             labelEditor.valueText !== "ON" &&
-                             labelEditor.valueText !== "OFF"
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 5
-
-                Label {
-                    text: "单位符号:"
-                }
-
-                TextField {
-                    id: unitField
-                    Layout.preferredWidth: 60
-                    placeholderText: ""
-                    text: labelEditor.unitText
+                             formulaEditor.valueText !== "ON" &&
+                             formulaEditor.valueText !== "OFF"
                 }
             }
 
@@ -665,16 +711,23 @@ Item {
                 spacing: 10
 
                 Button {
+                    text: "清除公式"
+                    onClicked: {
+                        formulaField.text = ""
+                    }
+                }
+
+                Button {
                     text: "取消"
-                    onClicked: labelEditor.close()
+                    onClicked: formulaEditor.close()
                 }
 
                 Button {
                     text: "确定"
                     onClicked: {
-                        saveLabelUnitAndFormula(labelEditor.address, labelField.text, unitField.text, formulaField.text)
+                        saveFormula(formulaEditor.address, formulaField.text)
                         updateVisualization()
-                        labelEditor.close()
+                        formulaEditor.close()
                     }
                 }
             }
@@ -684,8 +737,265 @@ Item {
         Connections {
             target: formulaField
             function onTextChanged() {
-                if (labelEditor.valueText !== "ON" && labelEditor.valueText !== "OFF") {
-                    previewLabel.text = applyFormula(labelEditor.valueText, formulaField.text)
+                if (formulaEditor.valueText !== "ON" && formulaEditor.valueText !== "OFF") {
+                    previewLabel.text = applyFormula(formulaEditor.valueText, formulaField.text)
+                }
+            }
+        }
+    }
+
+    // 曲线图窗口
+    Window {
+        id: chartWindow
+        width: 800
+        height: 600
+        visible: false
+        title: "数据曲线图"
+
+        property string currentItemId: ""  // 当前选中的项目ID
+        property bool isRecording: false   // 是否正在记录
+        property int recordInterval: 1000  // 记录间隔
+        property bool useKalmanFilter: false // 是否使用卡尔曼滤波
+        property int maxDataPoints: 100    // X轴最大数据点数
+        property real kalmanQ: 0.01        // 卡尔曼滤波器 Q 值
+        property real kalmanR: 0.1         // 卡尔曼滤波器 R 值
+
+        // 卡尔曼滤波函数
+        function kalmanFilter(measurement) {
+            // 预测步骤
+            kalmanP = kalmanP + kalmanQ;
+
+            // 更新步骤
+            const kalmanK = kalmanP / (kalmanP + kalmanR);  // 卡尔曼增益
+            kalmanX = kalmanX + kalmanK * (measurement - kalmanX);
+            kalmanP = (1 - kalmanK) * kalmanP;
+
+            return kalmanX;
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 10
+
+            // 控制面板
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                Label { text: "记录间隔(ms):" }
+
+                SpinBox {
+                    id: intervalSpinBox
+                    from: 100
+                    to: 10000
+                    stepSize: 100
+                    value: chartWindow.recordInterval
+                    onValueChanged: {
+                        if (chartWindow.currentItemId) {
+                            recordIntervals[chartWindow.currentItemId] = value;
+                            recordTimer.interval = value;
+                        }
+                    }
+                }
+
+                Button {
+                    text: chartWindow.isRecording ? "停止记录" : "开始记录"
+                    onClicked: {
+                        chartWindow.isRecording = !chartWindow.isRecording;
+                        if (chartWindow.isRecording) {
+                            if (!dataHistory[chartWindow.currentItemId]) {
+                                dataHistory[chartWindow.currentItemId] = {
+                                    data: [],
+                                    isRecording: true
+                                };
+                            } else {
+                                dataHistory[chartWindow.currentItemId].isRecording = true;
+                            }
+                            recordTimer.start();
+                        } else {
+                            if (dataHistory[chartWindow.currentItemId]) {
+                                dataHistory[chartWindow.currentItemId].isRecording = false;
+                            }
+                            recordTimer.stop();
+                        }
+                    }
+                }
+
+                Button {
+                    text: "清除数据"
+                    onClicked: {
+                        if (dataHistory[chartWindow.currentItemId]) {
+                            dataHistory[chartWindow.currentItemId].data = [];
+                            lineSeries.clear();
+                        }
+                    }
+                }
+
+                CheckBox {
+                    text: "卡尔曼滤波"
+                    checked: chartWindow.useKalmanFilter
+                    onCheckedChanged: {
+                        chartWindow.useKalmanFilter = checked;
+                        // 重置卡尔曼滤波器状态
+                        kalmanP = 1.0;
+                        kalmanX = 0.0;
+                    }
+                }
+            }
+
+            // X轴数据点控制面板
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+
+                Label { text: "X轴最大点数:" }
+                SpinBox {
+                    id: maxPointsSpinBox
+                    from: 10
+                    to: 1000
+                    stepSize: 10
+                    value: chartWindow.maxDataPoints
+                    onValueChanged: {
+                        chartWindow.maxDataPoints = value;
+                    }
+                }
+            }
+
+            // 卡尔曼滤波参数控制面板
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                visible: chartWindow.useKalmanFilter
+
+                Label { text: "Q值(过程噪声):" }
+                SpinBox {
+                    id: spinBoxQ
+                    from: 1  // 对应 0.01
+                    to: 10000  // 对应 100
+                    stepSize: 1  // 对应 0.01
+                    value: Math.round(chartWindow.kalmanQ * 100)
+                    editable: true
+
+                    property int decimals: 2
+                    onValueModified: {
+                        chartWindow.kalmanQ = value / 100;
+                        // 重置滤波器状态
+                        kalmanP = 1.0;
+                        kalmanX = 0.0;
+                    }
+
+                    textFromValue: function(value, locale) {
+                        return Number(value / 100).toLocaleString(locale, 'f', decimals)
+                    }
+
+                    valueFromText: function(text, locale) {
+                        return Math.round(Number.fromLocaleString(locale, text) * 100)
+                    }
+                }
+
+                Label { text: "R值(测量噪声):" }
+                SpinBox {
+                    id: spinBoxR
+                    from: 1  // 对应 0.01
+                    to: 10000  // 对应 100
+                    stepSize: 1  // 对应 0.01
+                    value: Math.round(chartWindow.kalmanR * 100)
+                    editable: true
+
+                    property int decimals: 2
+                    onValueModified: {
+                        chartWindow.kalmanR = value / 100;
+                        // 重置滤波器状态
+                        kalmanP = 1.0;
+                        kalmanX = 0.0;
+                    }
+
+                    textFromValue: function(value, locale) {
+                        return Number(value / 100).toLocaleString(locale, 'f', decimals)
+                    }
+
+                    valueFromText: function(text, locale) {
+                        return Math.round(Number.fromLocaleString(locale, text) * 100)
+                    }
+                }
+            }
+
+            // 图表视图
+            ChartView {
+                id: chartView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                antialiasing: true
+
+                DateTimeAxis {
+                    id: axisX
+                    format: "mm:ss"
+                    titleText: "时间"
+                }
+
+                ValueAxis {
+                    id: axisY
+                    titleText: "值"
+                }
+
+                LineSeries {
+                    id: lineSeries
+                    axisX: axisX
+                    axisY: axisY
+                    name: chartWindow.title
+                }
+            }
+        }
+
+        // 图表更新定时器
+        Timer {
+            id: updateTimer
+            interval: 300
+            running: chartWindow.visible && chartWindow.isRecording
+            repeat: true
+            onTriggered: {
+                if (chartWindow.currentItemId && dataHistory[chartWindow.currentItemId] && dataHistory[chartWindow.currentItemId].isRecording) {
+                    const data = dataHistory[chartWindow.currentItemId].data;
+                    lineSeries.clear();
+                    if (data.length > 0) {
+                        // 限制数据点数量
+                        let displayData = data;
+                        if (data.length > chartWindow.maxDataPoints) {
+                            displayData = data.slice(data.length - chartWindow.maxDataPoints);
+                        }
+
+                        // 更新X轴范围
+                        const firstTime = displayData[0].timestamp;
+                        const lastTime = displayData[displayData.length - 1].timestamp;
+                        axisX.min = new Date(firstTime);
+                        axisX.max = new Date(lastTime);
+
+                        // 更新Y轴范围
+                        let minY = displayData[0].value;
+                        let maxY = displayData[0].value;
+
+                        // 绘制数据点
+                        displayData.forEach(point => {
+                            let value = point.value;
+                            if (chartWindow.useKalmanFilter) {
+                                value = chartWindow.kalmanFilter(value);
+                            }
+                            lineSeries.append(point.timestamp, value);
+                            minY = Math.min(minY, value);
+                            maxY = Math.max(maxY, value);
+                        });
+
+                        // 设置Y轴范围
+                        if (minY === maxY) {
+                            axisY.min = minY - 1;
+                            axisY.max = maxY + 1;
+                        } else {
+                            const padding = (maxY - minY) * 0.1;
+                            axisY.min = minY - padding;
+                            axisY.max = maxY + padding;
+                        }
+                    }
                 }
             }
         }

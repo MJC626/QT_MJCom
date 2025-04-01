@@ -13,6 +13,7 @@
 #include <QMutex>
 #include <QWaitCondition>
 #include <QIcon>
+#include <QtWidgets/QApplication>
 
 
 // Lua头文件
@@ -220,7 +221,7 @@ public:
     //向所有客户端发送数据
     Q_INVOKABLE void sendTcpServerData(const QString &data, bool isHex) {
         QByteArray byteArray = isHex ? hexStringToByteArray(data) : data.toUtf8();
-        for (QTcpSocket *client : clients) {
+        for (QTcpSocket *client : std::as_const(clients)) {
             if (client->state() == QAbstractSocket::ConnectedState) {
                 client->write(byteArray);
             }
@@ -230,7 +231,7 @@ public:
 
     //停止 TCP 服务器
     Q_INVOKABLE void stopTcpServer() {
-        for (QTcpSocket *client : clients) {
+        for (QTcpSocket *client : std::as_const(clients)) {
             client->disconnectFromHost();
         }
         clients.clear();
@@ -861,7 +862,7 @@ private:
 };
 
 int main(int argc, char *argv[]) {
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     app.setWindowIcon(QIcon(":/MJCom.ico"));
     QQmlApplicationEngine engine;
 
