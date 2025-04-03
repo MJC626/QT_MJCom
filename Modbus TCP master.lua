@@ -148,7 +148,7 @@ function parse_long(bytes, format)
     return value
 end
 
-function parse_response(response, func_code, start_addr, format)
+function parse_response(response, func_code, start_addr, format, quantity)
     local func_name = get_func_name(func_code)
     
     if not response or response == "" then 
@@ -197,7 +197,7 @@ function parse_response(response, func_code, start_addr, format)
     
     if func_code == 0x01 or func_code == 0x02 then
         local states = {}
-        local point_count = math.min(byte_count * 8, 10)
+        local point_count = math.min(byte_count * 8, quantity)
         
         for i = 0, point_count - 1 do
             local byte_index = math.floor(i / 8) + 1
@@ -304,7 +304,7 @@ while true do
         sleep(settings.responseTimeout) 
 
         local response = getLastData()
-        parse_response(response, cfg.func_code, cfg.start_addr, cfg.format)
+        parse_response(response, cfg.func_code, cfg.start_addr, cfg.format, cfg.quantity)
 
         transaction_id = (transaction_id + 1) % 65536
         sleep(settings.pollInterval)
